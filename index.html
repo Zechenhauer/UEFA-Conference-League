@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚽Conference League Ligaphase</title>
+    <title>⚽ Conference League Ligaphase</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%23009857%22/><text x=%2250%22 y=%2272%22 font-size=%2260%22 text-anchor=%22middle%22 fill=%22%23ffffff%22>🟢</text></svg>">
     <!-- Supabase Client Bibliothek laden -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -637,7 +637,6 @@
     let globalAllScorers = [];
     let latestGoalMatchId = null;
 
-    // Korrigierte offizielle Spieltermine für die UEFA Conference League (Exakter ESPN-Pfad: uefa.europa.conf)
     const matchdaySchedule = {
         1: { title: "Spieltag 1", dates: ["20261015"] },
         2: { title: "Spieltag 2", dates: ["20261022"] },
@@ -647,7 +646,7 @@
         6: { title: "Spieltag 6", dates: ["20261217"] }
     };
 
-    let currentMatchday = 2; // Heute ist Spieltag 2 (22.10.2026)
+    let currentMatchday = 2;
     let matchdaysCache = {};
     let allLoadedEvents = [];
     
@@ -735,7 +734,6 @@
 
         for (let d of dates) {
             try {
-                // Korrekter ESPN API-Pfad basierend auf uefa.europa.conf
                 let res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa.conf/scoreboard?dates=${d}`);
                 let data = await res.json();
                 if (data.events) {
@@ -824,25 +822,23 @@
                 if (prev !== undefined) {
                     if (hScore > prev.home || aScore > prev.away) {
                         latestGoalMatchId = ev.id;
-                    }
-                }
-                previousScores[matchId] = { home: hScore, away: aScore };
 
-                let details = comp?.details || [];
-                for (let d of details) {
-                    let typeText = (d.type && d.type.text) ? d.type.text.toLowerCase() : "";
-                    const isGoal = d.scoringPlay || typeText.includes("goal");
-
-                    if (isGoal) {
-                        const scoringTeamId = d.team?.id;
-                        const isHomeTeam = (scoringTeamId === home.team.id);
-                        let playerName = d.athletesInvolved?.[0]?.displayName || d.player?.displayName || d.athlete?.displayName || 'Unbekannt';
-                        let clockVal = d.clock?.displayValue || '0';
-                        let uniqueGoalId = `${matchId}_${playerName}_${clockVal}_${hScore}_${aScore}`;
-                        let scoringTeamName = isHomeTeam ? home.team.displayName : away.team.displayName;
-                        let minStr = clockVal ? ` (${clockVal}')` : '';
-
+                        // Robuste Push-Auslösung gekoppelt an den Spielstandwechsel
                         if (isFreiburg(hName) || isFreiburg(aName)) {
+                            let scoringTeamName = hScore > prev.home ? hName : aName;
+                            
+                            let details = comp?.details || [];
+                            let latestDetail = details[details.length - 1];
+                            let playerName = latestDetail?.athletesInvolved?.[0]?.displayName 
+                                || latestDetail?.player?.displayName 
+                                || latestDetail?.athlete?.displayName 
+                                || 'SC Freiburg Spieler';
+                            let clockVal = latestDetail?.clock?.displayValue || '';
+                            let minStr = clockVal ? ` (${clockVal}')` : '';
+
+                            // Felsenfeste, eindeutige ID basierend auf Match, Spielstand und Torschütze
+                            let uniqueGoalId = `${matchId}_${hScore}-${aScore}_${playerName}`;
+
                             try {
                                 let { data: existing, error: checkError } = await supabaseClient
                                     .from('sent_goals_conf')
@@ -863,7 +859,7 @@
                                             body: JSON.stringify({
                                                 table: 'push_subscriptions_conf',
                                                 title: `⚽ ${scoringTeamName} — Tor! (${hScore}:${aScore})`,
-                                                body: `Torschütze: ${playerName}${minStr}\nBegegnung: ${home.team.displayName} vs ${away.team.displayName} (${hScore}:${aScore})`
+                                                body: `Torschütze: ${playerName}${minStr}\nBegegnung: ${hName} vs ${aName} (${hScore}:${aScore})`
                                             })
                                         });
                                     }
@@ -874,6 +870,7 @@
                         }
                     }
                 }
+                previousScores[matchId] = { home: hScore, away: aScore };
             }
         }
         
