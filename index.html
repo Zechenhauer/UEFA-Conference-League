@@ -69,7 +69,7 @@
         .ticker-score { color: #ffffff; font-weight: bold; font-size: 0.9rem; background: #152227; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border-color); }
         @keyframes ticker-scroll { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-50%, 0, 0); } }
 
-        /* Tor-Alarm Banner */
+        /* Tor-Alarm / VAR Banner */
         #goalAlertBanner { display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #0f171b, #13272d); border: 2px solid var(--accent-color); box-shadow: 0 10px 30px rgba(0,255,204,0.3); border-radius: 14px; padding: 18px 24px; z-index: 2000; width: 90%; max-width: 480px; text-align: center; animation: bounce-in 0.5s ease; cursor: pointer; }
         @keyframes bounce-in { 0% { transform: translate(-50%, -30px); opacity: 0; } 100% { transform: translate(-50%, 0); opacity: 1; } }
         .goal-alert-title { font-size: 1.2rem; font-weight: 900; color: var(--accent-color); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -149,7 +149,7 @@
     </style>
 </head>
 <body>
-    <!-- Live Tor-Alarm Popup -->
+    <!-- Live Tor-Alarm / VAR Popup -->
     <div id="goalAlertBanner" onclick="hideGoalAlert()">
         <div class="goal-alert-title" id="goalAlertTeam">⚽ Tor!</div>
         <div class="goal-alert-scorer" id="goalAlertScorer">Torschütze & Minute</div>
@@ -338,9 +338,6 @@
             }
         }
 
-        // ==========================================
-        // SUPABASE PUSH & TOR-ALARM (SENT GOALS)
-        // ==========================================
         async function loadSentGoalsCache() {
             try {
                 const { data } = await supabaseClient.from('sent_goals_conference').select('*');
@@ -378,6 +375,38 @@
                 });
             } catch (e) {
                 console.error("Fehler beim Push / Record:", e);
+            }
+        }
+
+        // VAR-Rücknahme Funktion für die Conference League
+        async function recordVarCorrectionAndNotify(matchId, home, away, homeScore, awayScore) {
+            sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
+
+            let pushTitle = `⚠️ Conference League: Tor-Korrektur (VAR)!`;
+            let pushBody = `Das Tor wurde nach Videobeweis zurückgenommen!\nNeuer Spielstand: ${home} - ${away} (${homeScore}:${awayScore})`;
+
+            showVarCorrectionAlert(`${home} : ${away} (${homeScore}:${awayScore})`);
+
+            try {
+                await supabaseClient.from('sent_goals_conference').upsert({
+                    match_id: String(matchId),
+                    home_score: homeScore,
+                    away_score: awayScore,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'match_id' });
+
+                await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table: 'push_subscriptions_conference',
+                        title: pushTitle,
+                        body: pushBody
+                    })
+                });
+            } catch (e) {
+                console.error("Fehler beim Conference League VAR-Push:", e);
             }
         }
 
@@ -445,10 +474,22 @@
         }
 
         function showGoalAlert(teamName, scorerInfo, matchInfo) {
+            const banner = document.getElementById("goalAlertBanner");
+            banner.style.background = "linear-gradient(135deg, #0f171b, #13272d)";
             document.getElementById("goalAlertTeam").textContent = `⚽ Tor für ${teamName}!`;
             document.getElementById("goalAlertScorer").textContent = scorerInfo;
             document.getElementById("goalAlertMatch").textContent = matchInfo;
-            document.getElementById("goalAlertBanner").style.display = "block";
+            banner.style.display = "block";
+            setTimeout(() => { hideGoalAlert(); }, 10000);
+        }
+
+        function showVarCorrectionAlert(matchInfo) {
+            const banner = document.getElementById("goalAlertBanner");
+            banner.style.background = "linear-gradient(135deg, #36280c, #634d1e)";
+            document.getElementById("goalAlertTeam").textContent = "⚠️ Conference League: Tor-Korrektur (VAR)!";
+            document.getElementById("goalAlertScorer").textContent = "Das Tor wurde nach Videobeweis zurückgenommen!";
+            document.getElementById("goalAlertMatch").textContent = `Neuer Spielstand: ${matchInfo}`;
+            banner.style.display = "block";
             setTimeout(() => { hideGoalAlert(); }, 10000);
         }
 
@@ -699,15 +740,18 @@
                         if (!cachedScore) {
                             sentGoalsCache[fixtureId] = { home: goalsHome, away: goalsAway };
                         } else {
+                            // 1. Fall: Normales Tor (Spielstand steigt)
                             if (goalsHome > cachedScore.home || goalsAway > cachedScore.away) {
                                 let scoringTeam = goalsHome > cachedScore.home ? home.name : away.name;
                                 let latestGoal = events.filter(ev => ev.type === 'Goal').pop();
                                 let scorerText = latestGoal ? `${latestGoal.player.name} (${latestGoal.time.elapsed}. Min)` : "Tor";
                                 
                                 showGoalAlert(scoringTeam, scorerText, `${home.name} - ${away.name}`);
-                                
-                                // Automatischer Push & Datenbank-Eintrag via Edge Function
                                 recordGoalAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway, latestGoal ? `⚽ ${latestGoal.player.name} (${latestGoal.time.elapsed}')` : '', scoringTeam);
+                            }
+                            // 2. Fall: VAR-Rücknahme (Spielstand sinkt)
+                            else if (goalsHome < cachedScore.home || goalsAway < cachedScore.away) {
+                                recordVarCorrectionAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway);
                             }
                         }
 
