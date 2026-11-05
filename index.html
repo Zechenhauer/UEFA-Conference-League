@@ -371,7 +371,7 @@
                     body: JSON.stringify({
                         table: 'push_subscriptions_conference',
                         title: `⚽ TOR! für ${scoringTeam} zum ${homeScore}:${awayScore}`,
-                        body: `${cleanPlayer ? 'Torschütze: ' + cleanPlayer + minStr + '\n' : ''}${home} : ${away} (${homeScore}:${awayScore})`
+                        body: `Torschütze: ${cleanPlayer}${minStr}\n${home} : ${away} (${hScore}:${aScore})`
                     })
                 });
             } catch (e) {
