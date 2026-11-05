@@ -352,8 +352,9 @@
         async function recordGoalAndNotify(matchId, home, away, homeScore, awayScore, latestScorer, scoringTeam) {
             sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
             
-            let cleanPlayer = latestScorer ? latestScorer.replace(/⚽\s*/, '').replace(/\(\d+['']\)/, '').trim() : '';
-            let minStr = latestScorer && latestScorer.match(/\(\d+['']\)/) ? ` ${latestScorer.match(/\(\d+['']\)[0]*/)[0]}` : '';
+            let cleanPlayer = latestScorer ? latestScorer.replace(/⚽\s*/, '').replace(/\(?[0-9]+['']\)?/g, '').trim() : '';
+            let minMatch = latestScorer ? latestScorer.match(/[0-9]+['']/) : null;
+            let minStr = minMatch ? ` (${minMatch[0]})` : '';
 
             try {
                 await supabaseClient.from('sent_goals_conference').upsert({
@@ -369,8 +370,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         table: 'push_subscriptions_conference',
-                        title: `⭐ Conference League Tor: ${scoringTeam}!`,
-                        body: `Stand: ${homeScore}:${awayScore}\n${home} : ${away}${cleanPlayer ? '\nSchütze: ' + cleanPlayer + minStr : ''}`
+                        title: `⚽ TOR! für ${scoringTeam} zum ${homeScore}:${awayScore}`,
+                        body: `${cleanPlayer ? 'Torschütze: ' + cleanPlayer + minStr + '\n' : ''}${home} : ${away} (${homeScore}:${awayScore})`
                     })
                 });
             } catch (e) {
