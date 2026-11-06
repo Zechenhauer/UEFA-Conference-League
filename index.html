@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UEFA Conference League</title>
+    <title>UEFA Conference League PRO Dashboard — Ultimativ</title>
     
     <!-- Conference League Homescreen & Apple Touch Icon (Türkis/Cyan) -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%23008080%22/><text x=%2250%22 y=%2272%22 font-size=%2262%22 text-anchor=%22middle%22>⭐</text></svg>">
@@ -33,9 +33,9 @@
         .container { width: 100%; max-width: 950px; }
 
         header { text-align: center; margin-bottom: 20px; }
-        h1 { font-size: 2.2rem; color: var(--accent-color); margin-bottom: 5px; }
+        h1 { font-size: 2.2rem; color: var(--accent-color); margin-bottom: 5px; display: flex; align-items: center; justify-content: center; gap: 12px; }
         .subtitle { color: var(--text-muted); font-size: 0.95rem; }
-        .author-sub { color: var(--accent-color); font-size: 0.8rem; font-weight: 500; margin-top: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
+        .author-sub { color: var(--accent-color); font-size: 0.8rem; font-weight: 500; margin-top: 6px; letter-spacing: 0.5px; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
         .status-box { background: var(--card-bg); border: 1px solid var(--accent-color); padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; }
 
@@ -173,9 +173,15 @@
         </div>
 
         <header>
-            <h1>UEFA Conference League PRO</h1>
+            <h1>
+                <img src="https://media.api-sports.io/football/leagues/848.png" alt="Conference League Logo" style="height: 42px; width: 42px; object-fit: contain; background: #ffffff; padding: 3px; border-radius: 8px; vertical-align: middle;">
+                UEFA Conference League PRO
+            </h1>
             <div class="subtitle">Ligaphase, Livescores, Statistiken & Aufstellungen (Saison 2026/27)</div>
-            <div class="author-sub">Webmanagement Jürgen Schützendorf</div>
+            <div class="author-sub">
+                <img src="https://lhusylpjnujlqomougmg.supabase.co/storage/v1/object/public/Bilder/Juergen%20Schuetzendorf.png" alt="Jürgen Schützendorf" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover; border: 1px solid var(--accent-color); vertical-align: middle;">
+                <span>Webmanagement Jürgen Schützendorf</span>
+            </div>
         </header>
 
         <div id="apiStatusBanner" class="status-box">
@@ -291,6 +297,43 @@
         let sentGoalsCache = {};
         let smartPollingInterval = null;
 
+        // Globaler Spieler-Foto-Cache
+        let playerPhotoCache = JSON.parse(localStorage.getItem('conference_player_photo_cache') || '{}');
+
+        function cachePlayerPhoto(playerId, photoUrl) {
+            if (playerId && photoUrl && !playerPhotoCache[playerId]) {
+                playerPhotoCache[playerId] = photoUrl;
+                localStorage.setItem('conference_player_photo_cache', JSON.stringify(playerPhotoCache));
+            }
+        }
+
+        async function fetchAndCachePlayerPhoto(playerId) {
+            if (!playerId || playerPhotoCache[playerId]) return;
+            try {
+                const res = await fetch(`https://v3.football.api-sports.io/players?id=${playerId}&season=${season}`, { headers: { "x-apisports-key": apiKey } });
+                const data = await res.json();
+                if (data.response && data.response.length > 0) {
+                    const p = data.response[0].player;
+                    if (p && p.photo) {
+                        cachePlayerPhoto(playerId, p.photo);
+                        document.querySelectorAll(`.player-img-${playerId}`).forEach(img => {
+                            img.src = p.photo;
+                            img.style.display = 'inline-block';
+                        });
+                    }
+                }
+            } catch (e) {}
+        }
+
+        function getPlayerPhotoHtml(playerId, size = '20px') {
+            if (!playerId) return '';
+            let photoUrl = playerPhotoCache[playerId] || '';
+            if (!photoUrl) {
+                fetchAndCachePlayerPhoto(playerId);
+            }
+            return `<img src="${photoUrl}" class="player-img-${playerId}" style="width:${size}; height:${size}; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:5px; ${!photoUrl ? 'display:none;' : ''}">`;
+        }
+
         function isFreiburg(name) {
             return name && (name.includes("Freiburg") || name.includes("SC Freiburg"));
         }
@@ -371,7 +414,7 @@
                     body: JSON.stringify({
                         table: 'push_subscriptions_conference',
                         title: `⚽ TOR! für ${scoringTeam} zum ${homeScore}:${awayScore}`,
-                        body: `Torschütze: ${cleanPlayer}${minStr}\n${home} : ${away} (${hScore}:${aScore})`
+                        body: `Torschütze: ${cleanPlayer}${minStr}\n${home} : ${away}`
                     })
                 });
             } catch (e) {
@@ -379,7 +422,6 @@
             }
         }
 
-        // VAR-Rücknahme Funktion für die Conference League
         async function recordVarCorrectionAndNotify(matchId, home, away, homeScore, awayScore) {
             sentGoalsCache[matchId] = { home: homeScore, away: awayScore };
 
@@ -497,15 +539,17 @@
         function hideGoalAlert() { document.getElementById("goalAlertBanner").style.display = "none"; }
 
         function manageSmartPolling(hasLiveGames) {
-            if (hasLiveGames && !smartPollingInterval) {
-                smartPollingInterval = setInterval(() => {
-                    if (currentMatchday) loadMatchday(currentMatchday, true);
-                    loadTable();
-                }, 60000);
-            } else if (!hasLiveGames && smartPollingInterval) {
+            if (smartPollingInterval) {
                 clearInterval(smartPollingInterval);
                 smartPollingInterval = null;
             }
+            const pollingIntervalTime = hasLiveGames ? 60000 : 180000; // 60s live, 3 Min (180s) Standby
+            smartPollingInterval = setInterval(() => {
+                if (currentMatchday) {
+                    loadMatchday(currentMatchday, true);
+                    loadTable();
+                }
+            }, pollingIntervalTime);
         }
 
         async function loadTopScorers() {
@@ -515,14 +559,20 @@
                 const data = await res.json();
                 if(data.response && data.response.length > 0) {
                     globalTopScorers = data.response;
+                    globalTopScorers.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
                     let html = "";
                     for(let i = 0; i < Math.min(3, globalTopScorers.length); i++) {
                         let p = globalTopScorers[i];
                         let goals = p.statistics[0].goals.total ?? 0;
                         let teamName = p.statistics[0].team.name;
                         let freiburgClass = isFreiburg(teamName) ? "freiburg-highlight" : "";
+                        let photoHtml = getPlayerPhotoHtml(p.player.id, '20px');
                         html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${freiburgClass}">
-                            <span><b>${i+1}.</b> ${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b>${i+1}.</b>
+                                ${photoHtml}
+                                <span>${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            </div>
                             <span style="background:#152227; padding:1px 6px; border-radius:4px; font-weight:bold; color:var(--accent-color);">${goals} Tore</span>
                         </div>`;
                     }
@@ -538,14 +588,20 @@
                 const data = await res.json();
                 if(data.response && data.response.length > 0) {
                     globalTopAssists = data.response;
+                    globalTopAssists.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
                     let html = "";
                     for(let i = 0; i < Math.min(3, globalTopAssists.length); i++) {
                         let p = globalTopAssists[i];
                         let assists = p.statistics[0].goals.assists ?? 0;
                         let teamName = p.statistics[0].team.name;
                         let freiburgClass = isFreiburg(teamName) ? "freiburg-highlight" : "";
+                        let photoHtml = getPlayerPhotoHtml(p.player.id, '20px');
                         html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${freiburgClass}">
-                            <span><b>${i+1}.</b> ${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b>${i+1}.</b>
+                                ${photoHtml}
+                                <span>${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            </div>
                             <span style="background:#152227; padding:1px 6px; border-radius:4px; font-weight:bold; color:var(--accent-color);">${assists} Assists</span>
                         </div>`;
                     }
@@ -561,14 +617,20 @@
                 const data = await res.json();
                 if(data.response && data.response.length > 0) {
                     globalYellowCards = data.response;
+                    globalYellowCards.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
                     let html = "";
                     for(let i = 0; i < Math.min(3, globalYellowCards.length); i++) {
                         let p = globalYellowCards[i];
                         let cards = p.statistics[0].cards.yellow ?? 0;
                         let teamName = p.statistics[0].team.name;
                         let freiburgClass = isFreiburg(teamName) ? "freiburg-highlight" : "";
+                        let photoHtml = getPlayerPhotoHtml(p.player.id, '20px');
                         html += `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding:3px 0; border-bottom:1px solid var(--border-color);" class="${freiburgClass}">
-                            <span><b>${i+1}.</b> ${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b>${i+1}.</b>
+                                ${photoHtml}
+                                <span>${p.player.name} <span style="color:var(--text-muted); font-size:0.75rem;">(${teamName})</span></span>
+                            </div>
                             <span style="background:#152227; padding:1px 6px; border-radius:4px; font-weight:bold; color:#f0883e;">🟨 ${cards}</span>
                         </div>`;
                     }
@@ -634,7 +696,8 @@
             globalTopScorers.forEach((p, index) => {
                 let stats = p.statistics[0];
                 let isFr = isFreiburg(stats.team.name);
-                html += `<tr class="${isFr ? 'freiburg-team' : ''}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${p.player.photo}" style="width:20px; height:20px; border-radius:50%; object-fit:cover;"><span>${p.player.name}</span></div></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td><td class="center"><b>${stats.goals.total ?? 0}</b></td><td class="center">${stats.goals.penalty ?? 0}</td></tr>`;
+                let photoHtml = getPlayerPhotoHtml(p.player.id, '24px');
+                html += `<tr class="${isFr ? 'freiburg-team' : ''}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:8px;">${photoHtml}<span>${p.player.name}</span></div></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td><td class="center"><b>${stats.goals.total ?? 0}</b></td><td class="center">${stats.goals.penalty ?? 0}</td></tr>`;
             });
             document.getElementById("fullScorersContainer").innerHTML = html + `</table>`;
         }
@@ -645,7 +708,8 @@
             globalTopAssists.forEach((p, index) => {
                 let stats = p.statistics[0];
                 let isFr = isFreiburg(stats.team.name);
-                html += `<tr class="${isFr ? 'freiburg-team' : ''}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${p.player.photo}" style="width:20px; height:20px; border-radius:50%; object-fit:cover;"><span>${p.player.name}</span></div></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td><td class="center"><b>${stats.goals.assists ?? 0}</b></td></tr>`;
+                let photoHtml = getPlayerPhotoHtml(p.player.id, '24px');
+                html += `<tr class="${isFr ? 'freiburg-team' : ''}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:8px;">${photoHtml}<span>${p.player.name}</span></div></td><td><div style="display:flex; align-items:center; gap:6px;"><img src="${stats.team.logo}" style="width:16px; height:16px; object-fit:contain;"><span>${stats.team.name}</span></div></td><td class="center"><b>${stats.goals.assists ?? 0}</b></td></tr>`;
             });
             document.getElementById("fullAssistsContainer").innerHTML = html + `</table>`;
         }
@@ -656,7 +720,8 @@
             globalYellowCards.forEach((p, index) => {
                 let stats = p.statistics[0];
                 let isFr = isFreiburg(stats.team.name);
-                html += `<tr class="${isFr ? 'freiburg-team' : ''}"><td><b>${index+1}</b></td><td><span>${p.player.name}</span></td><td><span>${stats.team.name}</span></td><td class="center"><b>${stats.cards.yellow ?? 0}</b></td><td class="center">${stats.cards.yellowred ?? 0}</td><td class="center">${stats.cards.red ?? 0}</td></tr>`;
+                let photoHtml = getPlayerPhotoHtml(p.player.id, '24px');
+                html += `<tr class="${isFr ? 'freiburg-team' : ''}"><td><b>${index+1}</b></td><td><div style="display:flex; align-items:center; gap:8px;">${photoHtml}<span>${p.player.name}</span></div></td><td><span>${stats.team.name}</span></td><td class="center"><b>${stats.cards.yellow ?? 0}</b></td><td class="center">${stats.cards.yellowred ?? 0}</td><td class="center">${stats.cards.red ?? 0}</td></tr>`;
             });
             document.getElementById("fullYellowCardsContainer").innerHTML = html + `</table>`;
         }
@@ -741,7 +806,6 @@
                         if (!cachedScore) {
                             sentGoalsCache[fixtureId] = { home: goalsHome, away: goalsAway };
                         } else {
-                            // 1. Fall: Normales Tor (Spielstand steigt)
                             if (goalsHome > cachedScore.home || goalsAway > cachedScore.away) {
                                 let scoringTeam = goalsHome > cachedScore.home ? home.name : away.name;
                                 let latestGoal = events.filter(ev => ev.type === 'Goal').pop();
@@ -750,7 +814,6 @@
                                 showGoalAlert(scoringTeam, scorerText, `${home.name} - ${away.name}`);
                                 recordGoalAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway, latestGoal ? `⚽ ${latestGoal.player.name} (${latestGoal.time.elapsed}')` : '', scoringTeam);
                             }
-                            // 2. Fall: VAR-Rücknahme (Spielstand sinkt)
                             else if (goalsHome < cachedScore.home || goalsAway < cachedScore.away) {
                                 recordVarCorrectionAndNotify(fixtureId, home.name, away.name, goalsHome, goalsAway);
                             }
@@ -775,7 +838,8 @@
                             let cH = 0, cA = 0;
                             goalEvents.forEach(ge => {
                                 if (ge.team.id === home.id) cH++; else cA++;
-                                scorersHtml += `<div class="scorer-tag"><span class="scorer-score-badge">${cH}:${cA}</span><span>⚽ ${ge.time.elapsed}' ${ge.player.name}</span></div>`;
+                                let photoHtml = getPlayerPhotoHtml(ge.player.id, '18px');
+                                scorersHtml += `<div class="scorer-tag"><span class="scorer-score-badge">${cH}:${cA}</span><span style="display:inline-flex; align-items:center;">${photoHtml}⚽ ${ge.time.elapsed}' ${ge.player.name}</span></div>`;
                             });
                             scorersHtml += `</div>`;
                         }
@@ -829,7 +893,8 @@
                         match.events.forEach(ev => {
                             if (ev.type === 'Goal') {
                                 if (ev.team.id === home.id) hG++; else aG++;
-                                evHtml += `<div class="event-item"><div style="display:flex; align-items:center; gap:10px;"><span class="event-time">${ev.time.elapsed}'</span><span>⚽ <b>${ev.player.name}</b> (${ev.team.name})</span></div><span class="event-score">${hG}:${aG}</span></div>`;
+                                let photoHtml = getPlayerPhotoHtml(ev.player.id, '20px');
+                                evHtml += `<div class="event-item"><div style="display:flex; align-items:center; gap:10px;"><span class="event-time">${ev.time.elapsed}'</span><span style="display:flex; align-items:center;">${photoHtml}⚽ <b>${ev.player.name}</b> (${ev.team.name})</span></div><span class="event-score">${hG}:${aG}</span></div>`;
                             }
                         });
                     }
@@ -840,15 +905,31 @@
                         let lHome = lineupsData.response[0];
                         let lAway = lineupsData.response[1];
 
+                        lHome.startXI?.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
+                        lHome.substitutes?.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
+                        lAway.startXI?.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
+                        lAway.substitutes?.forEach(p => cachePlayerPhoto(p.player.id, p.player.photo));
+
                         function formatTeamDetails(lineupObj, teamObj) {
-                            let start11 = lineupObj.startXI.map(p => `${p.player.name} (${p.player.pos})`).join(", ");
-                            let subs = lineupObj.substitutes.map(p => `${p.player.name}`).join(", ");
+                            let start11 = lineupObj.startXI.map(p => {
+                                let photoHtml = getPlayerPhotoHtml(p.player.id, '16px');
+                                return `<span style="display:inline-flex; align-items:center; margin-right:6px;">${photoHtml}${p.player.name} (${p.player.pos})</span>`;
+                            }).join(", ");
+                            let subs = lineupObj.substitutes.map(p => {
+                                let photoHtml = getPlayerPhotoHtml(p.player.id, '16px');
+                                return `<span style="display:inline-flex; align-items:center; margin-right:6px;">${photoHtml}${p.player.name}</span>`;
+                            }).join(", ");
                             let teamEvents = (match.events || []).filter(ev => ev.team.id === teamObj.id);
                             
-                            let subsEvents = teamEvents.filter(ev => ev.type === 'subst').map(ev => `<div style="font-size:0.8rem; color:var(--text-muted);">🔄 ${ev.time.elapsed}' Ein: ${ev.player.name} | Aus: ${ev.assist.name}</div>`).join("");
+                            let subsEvents = teamEvents.filter(ev => ev.type === 'subst').map(ev => {
+                                let photoHtml = getPlayerPhotoHtml(ev.player.id, '16px');
+                                return `<div style="font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center;">🔄 ${ev.time.elapsed}' Ein: ${photoHtml}${ev.player.name}</div>`;
+                            }).join("");
+                            
                             let cardsEvents = teamEvents.filter(ev => ev.type === 'Card').map(ev => {
                                 let cIcon = ev.detail === 'Red Card' ? '🟥' : (ev.detail === 'Yellow Red Card' ? '🟨🟥' : '🟨');
-                                return `<div style="font-size:0.8rem; color:var(--text-muted);">${cIcon} ${ev.time.elapsed}' ${ev.player.name}</div>`;
+                                let photoHtml = getPlayerPhotoHtml(ev.player.id, '16px');
+                                return `<div style="font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center;">${cIcon} ${ev.time.elapsed}' ${photoHtml}${ev.player.name}</div>`;
                             }).join("");
 
                             return `
